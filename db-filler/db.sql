@@ -56,6 +56,7 @@ CREATE TABLE orders (
   print_size INTEGER NOT NULL,
   print_material INTEGER NOT NULL,
   print_machine INTEGER NOT NULL,
+  colored INTEGER NOT NULL,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   total INTEGER NOT NULL,
   priority INTEGER DEFAULT 0 CHECK (priority IN (0, 1)),

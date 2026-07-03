@@ -1,99 +1,250 @@
-import numpy as np
+import os
+import joblib
 import pandas as pd
+import numpy as np
+from dotenv import load_dotenv
+import libsql_client
+
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LinearRegression
+from sklearn.tree import DecisionTreeRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, r2_score
 
-# ==========================================
-# 1. TU DATASET REAL (Cargado desde tu BD o CSV)
-# ==========================================
-# Suponiendo que exportas tus datos a un DataFrame de Pandas:
-# df = pd.read_csv('tus_datos_de_impresion.csv')
+# ============================================
+# Configuración
+# ============================================
 
-# Para este ejemplo, simulamos una fila con tu estructura exacta:
-valores_ejemplo = {
-    'TipoTrabajo': ['Documento', 'Afiche', 'Flyer', 'Libro'],
-    'Cantidad': [26, 100, 500, 50],
-    'Tamaño': ['A2', 'A3', 'A4', 'A1'],
-    'Material': ['Couché', 'Bond', 'Couché', 'Cartulina'],
-    'Color': [1, 0, 1, 1], # 1 = Sí, 0 = No (True/False)
-    'TiempoMinutos': [45, 20, 85, 120] # Tu columna objetivo (resultado de la BD)
-}
-df = pd.DataFrame(valores_ejemplo)
+load_dotenv()
 
-# ==========================================
-# 2. DEFINICIÓN DE VARIABLES (X e y)
-# ==========================================
-# X contiene las 5 variables predictoras
-X = df[['TipoTrabajo', 'Cantidad', 'Tamaño', 'Material', 'Color']]
-# y contiene el tiempo real que demoró
-y = df['TiempoMinutos']
+TURSO_DATABASE_URL = os.getenv("TURSO_DATABASE_URL", "file:local.db")
+TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN", "")
 
-# Dividimos en set de entrenamiento y prueba (en producción usa un dataset grande)
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+if "your-database-name.turso.io" in TURSO_DATABASE_URL or not TURSO_DATABASE_URL:
+    TURSO_DATABASE_URL = "file:local.db"
 
-# ==========================================
-# 3. PREPROCESAMIENTO CONFIGURADO
-# ==========================================
-# Solo aplicamos One-Hot Encoding a las columnas de texto (categóricas)
-# 'Cantidad' y 'Color' se quedan tal cual porque ya son números (passthrough)
-features_categoricas = ['TipoTrabajo', 'Tamaño', 'Material']
+FEATURES = [
+    "TipoTrabajo",
+    "Cantidad",
+    "Tamaño",
+    "Material",
+    "Color"
+]
 
-preprocesador = ColumnTransformer(
-    transformers=[
-        ('cat', OneHotEncoder(handle_unknown='ignore'), features_categoricas)
-    ],
-    remainder='passthrough' # Deja 'Cantidad' y 'Color' intactas
-)
+TARGET = "TiempoMinutos"
 
-# ==========================================
-# 4. CREACIÓN Y ENTRENAMIENTO DEL PIPELINE
-# ==========================================
-# Usaremos Random Forest como ejemplo principal ya que suele dar el mejor resultado
-pipeline_rf = Pipeline(steps=[
-    ('preprocessor', preprocessor),
-    ('model', RandomForestRegressor(n_estimators=100, random_state=42))
-])
 
-# Entrenar el modelo con los datos históricos de tu BD
-pipeline_rf.fit(X_train, y_train)
+# ============================================
+# Obtener datos desde Turso
+# ============================================
 
-print("¡Modelo entrenado exitosamente con tus 5 variables!")
+def fetch_training_data(client):
+    print("Extrayendo datos históricos...")
 
-# ==========================================
-# 5. FUNCIÓN DE PREDICCIÓN PARA TU NUEVA VARIABLE
-# ==========================================
-def predecir_tiempo_impresion(tipo_trabajo, cantidad, tamano, material, color):
+    query = """
+    SELECT
+        t.print_type AS TipoTrabajo,
+        o.quantity AS Cantidad,
+        s.print_size AS Tamaño,
+        m.print_material AS Material,
+        o.colored AS Color,
+        o.final_time AS TiempoMinutos
+    FROM orders o
+    JOIN print_types t
+        ON o.print_type = t.type_id
+    JOIN print_sizes s
+        ON o.print_size = s.size_id
+    JOIN print_materials m
+        ON o.print_material = m.material_id
+    WHERE
+        o.status = 'Completado'
+        AND o.final_time IS NOT NULL;
     """
-    Recibe los 5 campos exactos y retorna el tiempo estimado en minutos.
-    """
-    # Mapeamos "Sí" a 1 y cualquier otra cosa a 0 por si te llega como texto desde el frontend
-    color_binario = 1 if color in [1, True, 'Sí', 'si', 'SI'] else 0
-    
-    # Creamos la estructura idéntica a la que usó el modelo para entrenar
-    nuevo_caso = pd.DataFrame([{
-        'TipoTrabajo': tipo_trabajo,
-        'Cantidad': cantidad,
-        'Tamaño': tamano,
-        'Material': material,
-        'Color': color_binario
-    }])
-    
-    # El pipeline se encarga de transformar el texto a binario y predecir automáticamente
-    prediccion = pipeline_rf.predict(nuevo_caso)[0]
-    return round(prediccion, 2)
 
-# --- PRUEBA CON TU EJEMPLO ---
-# TipoTrabajo: Documento | Cantidad: 26 | Tamaño: A2 | Material: Couché | Color: Sí (1)
-tiempo_estimado = predecir_tiempo_impresion(
-    tipo_trabajo='Documento',
-    cantidad=26,
-    tamano='A2',
-    material='Couché',
-    color='Sí'
-)
+    result = client.execute(query)
 
-print(f"\nTiempo estimado para tu trabajo de ejemplo: {tiempo_estimado} minutos.")
+    if len(result.rows) < 30:
+        print("⚠ Muy pocos datos reales para entrenar.")
+        print("Usando datos simulados...")
+        return generate_mock_data()
+
+    columns = list(result.columns)
+    data = [list(row) for row in result.rows]
+
+    return pd.DataFrame(data, columns=columns)
+
+
+# ============================================
+# Datos simulados
+# ============================================
+
+def generate_mock_data():
+    np.random.seed(42)
+
+    n = 500
+
+    df = pd.DataFrame({
+        "TipoTrabajo": np.random.choice(
+            ["Banner", "Documento", "Flyer", "Plano", "Tarjeta"],
+            n
+        ),
+        "Cantidad": np.random.randint(5, 500, n),
+        "Tamaño": np.random.choice(
+            ["A2", "A3", "A4", "Grande"],
+            n
+        ),
+        "Material": np.random.choice(
+            ["Bond", "Cartulina", "Couche", "Vinil"],
+            n
+        ),
+        "Color": np.random.choice([0, 1], n)
+    })
+
+    tipo = {
+        "Banner": 30,
+        "Documento": 10,
+        "Flyer": 18,
+        "Plano": 22,
+        "Tarjeta": 14
+    }
+
+    tamaño = {
+        "A4": 2,
+        "A3": 6,
+        "A2": 12,
+        "Grande": 25
+    }
+
+    material = {
+        "Bond": 2,
+        "Cartulina": 8,
+        "Couche": 6,
+        "Vinil": 20
+    }
+
+    ruido = np.random.randint(0, 8, n)
+
+    df[TARGET] = (
+        df["Cantidad"] * 0.12
+        + df["Color"] * 10
+        + df["TipoTrabajo"].map(tipo)
+        + df["Tamaño"].map(tamaño)
+        + df["Material"].map(material)
+        + ruido
+    )
+
+    return df
+
+
+# ============================================
+# Programa principal
+# ============================================
+
+def main():
+    print(f"Conectando a la base de datos: {TURSO_DATABASE_URL}")
+
+    try:
+        if TURSO_DATABASE_URL.startswith("file:"):
+            client = libsql_client.create_client_sync(TURSO_DATABASE_URL)
+        else:
+            client = libsql_client.create_client_sync(
+                TURSO_DATABASE_URL,
+                auth_token=TURSO_AUTH_TOKEN
+            )
+
+    except Exception as e:
+        print(f"Error de conexión: {e}")
+        return
+
+    try:
+        df = fetch_training_data(client)
+
+        print(f"Registros utilizados para entrenamiento: {len(df)}")
+
+        X = df[FEATURES]
+        y = df[TARGET]
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X,
+            y,
+            test_size=0.20,
+            random_state=42
+        )
+
+        categorical_features = [
+            "TipoTrabajo",
+            "Tamaño",
+            "Material"
+        ]
+
+        preprocessor = ColumnTransformer(
+            transformers=[
+                (
+                    "categorical",
+                    OneHotEncoder(handle_unknown="ignore"),
+                    categorical_features
+                )
+            ],
+            remainder="passthrough"
+        )
+
+        models = {
+            "linear_regression": LinearRegression(),
+
+            "decision_tree": DecisionTreeRegressor(
+                max_depth=6,
+                random_state=42
+            ),
+
+            "random_forest": RandomForestRegressor(
+                n_estimators=300,
+                random_state=42,
+                n_jobs=-1
+            )
+        }
+
+        os.makedirs("models", exist_ok=True)
+
+        print("\n========== Entrenamiento ==========\n")
+
+        for name, model in models.items():
+
+            pipeline = Pipeline([
+                ("preprocessor", preprocessor),
+                ("model", model)
+            ])
+
+            pipeline.fit(X_train, y_train)
+
+            predictions = pipeline.predict(X_test)
+
+            mae = mean_absolute_error(y_test, predictions)
+            r2 = r2_score(y_test, predictions)
+
+            print("=" * 45)
+            print(name.upper())
+            print(f"MAE : {mae:.2f} minutos")
+            print(f"R²  : {r2:.4f}")
+
+            model_path = os.path.join(
+                "models",
+                f"{name}_model.pkl"
+            )
+
+            joblib.dump(pipeline, model_path)
+
+            print(f"Modelo guardado en: {model_path}")
+
+        print("\n====================================")
+        print("Entrenamiento finalizado correctamente.")
+        print("====================================")
+
+    finally:
+        client.close()
+
+
+if __name__ == "__main__":
+    main()

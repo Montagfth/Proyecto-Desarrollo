@@ -1,0 +1,19 @@
+version: "3.9"
+
+services:
+
+  trainer:
+    build: .
+
+    container_name: ml-trainer
+
+    env_file:
+      - .env
+
+    volumes:
+      - ./models:/app/models
+
+      # Solo si utilizas SQLite local
+      - ./local.db:/app/local.db
+
+    restart: "no"

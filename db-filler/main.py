@@ -268,10 +268,23 @@ def main():
                 client.execute(
                     """
                     INSERT OR REPLACE INTO orders (
-                        order_id, client, print_type, print_size, print_material, print_machine,
-                        quantity, total, priority, created, status, started_at, completed_at,
-                        estimated_time, final_time
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        order_id,
+                        client,
+                        print_type,
+                        print_size,
+                        print_material,
+                        print_machine,
+                        quantity,
+                        colored,
+                        total,
+                        priority,
+                        created,
+                        status,
+                        started_at,
+                        completed_at,
+                        estimated_time,
+                        final_time
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         int(id_pedido),
@@ -281,6 +294,7 @@ def main():
                         db_material_id,
                         db_machine_id,
                         int(cantidad),
+                        color_bool,
                         total_int,
                         priority_val,
                         created_str,
