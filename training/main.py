@@ -66,77 +66,10 @@ def fetch_training_data(client):
 
     result = client.execute(query)
 
-    if len(result.rows) < 30:
-        print("⚠ Muy pocos datos reales para entrenar.")
-        print("Usando datos simulados...")
-        return generate_mock_data()
-
     columns = list(result.columns)
     data = [list(row) for row in result.rows]
 
     return pd.DataFrame(data, columns=columns)
-
-
-# ============================================
-# Datos simulados
-# ============================================
-
-def generate_mock_data():
-    np.random.seed(42)
-
-    n = 500
-
-    df = pd.DataFrame({
-        "TipoTrabajo": np.random.choice(
-            ["Banner", "Documento", "Flyer", "Plano", "Tarjeta"],
-            n
-        ),
-        "Cantidad": np.random.randint(5, 500, n),
-        "Tamaño": np.random.choice(
-            ["A2", "A3", "A4", "Grande"],
-            n
-        ),
-        "Material": np.random.choice(
-            ["Bond", "Cartulina", "Couche", "Vinil"],
-            n
-        ),
-        "Color": np.random.choice([0, 1], n)
-    })
-
-    tipo = {
-        "Banner": 30,
-        "Documento": 10,
-        "Flyer": 18,
-        "Plano": 22,
-        "Tarjeta": 14
-    }
-
-    tamaño = {
-        "A4": 2,
-        "A3": 6,
-        "A2": 12,
-        "Grande": 25
-    }
-
-    material = {
-        "Bond": 2,
-        "Cartulina": 8,
-        "Couche": 6,
-        "Vinil": 20
-    }
-
-    ruido = np.random.randint(0, 8, n)
-
-    df[TARGET] = (
-        df["Cantidad"] * 0.12
-        + df["Color"] * 10
-        + df["TipoTrabajo"].map(tipo)
-        + df["Tamaño"].map(tamaño)
-        + df["Material"].map(material)
-        + ruido
-    )
-
-    return df
 
 
 # ============================================
