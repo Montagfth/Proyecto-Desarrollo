@@ -9,9 +9,6 @@ venv/
 .venv/
 env/
 
-# Modelos ya generados
-models/
-
 # VSCode
 .vscode/
 
