@@ -5,6 +5,8 @@ from prediction.predict_router import router as predict_router
 app = FastAPI()
 
 origins = [
+    "http://localhost:5174",
+    "http://localhost:5173",
     "http://localhost:4200",
     "http://localhost:3000",
     "http://localhost:8000"
